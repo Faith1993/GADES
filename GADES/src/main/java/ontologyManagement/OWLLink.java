@@ -2,6 +2,9 @@ package ontologyManagement;
 
 import java.util.Set;
 
+import org.semanticweb.owlapi.model.OWLLiteral;
+
+import info.debatty.java.stringsimilarity.JaroWinkler;
 import similarity.ComparableElement;
 import similarity.matching.BipartiteGraphMatching;
 import test.ComparisonResult;
@@ -13,6 +16,7 @@ import test.ComparisonResult;
 public class OWLLink implements ComparableElement {
 	private OWLRelation relation;
 	private MyOWLLogicalEntity destiny;
+	private OWLLiteral desLiteral;
 	private Set<OWLExplanation> explanations;
 	
 
@@ -20,11 +24,20 @@ public class OWLLink implements ComparableElement {
 		relation = r;
 		destiny = b;
 		explanations = exp;
+		desLiteral = null;
 	}
 	
 	public OWLLink(OWLRelation r, MyOWLLogicalEntity b) {
 		relation = r;
 		destiny = b;
+		explanations = null;
+		desLiteral = null;
+	}
+	
+	public OWLLink(OWLRelation r, OWLLiteral b) {
+		relation = r;
+		desLiteral = b;
+		destiny = null;
 		explanations = null;
 	}
 
@@ -38,7 +51,10 @@ public class OWLLink implements ComparableElement {
 	
 	public String toString()
 	{
-		return relation.toString() + " " + destiny.toString();
+		if (destiny != null)
+			return relation.toString() + " " + destiny.toString();
+		else
+			return relation.toString() + " " + desLiteral.toString();
 	}
 	
 	public OWLRelation getRelation()
@@ -68,11 +84,24 @@ public class OWLLink implements ComparableElement {
 				sim = 0.1*simTaxRel + 0.5*simTaxDes + 0.4*simExp;
 			}*/
 			double simTaxRel = relation.similarity(a.relation);
-			double simTaxDes = destiny.taxonomicSimilarity(a.destiny);
+			double simTaxDes = 0;
+			if (destiny != null && a.destiny != null)
+				simTaxDes = destiny.taxonomicSimilarity(a.destiny);
+			if (desLiteral != null && a.desLiteral != null)
+			{
+				if (desLiteral.isRDFPlainLiteral() && a.desLiteral.isRDFPlainLiteral())
+				{
+					JaroWinkler jw = new JaroWinkler();
+					simTaxDes = jw.similarity(desLiteral.getLiteral(), a.desLiteral.getLiteral());
+
+				}
+				else
+					simTaxDes = (desLiteral.equals(a.desLiteral)) ? 1: 0;
+			}
 			double simExp = 1;//0;
 			//if (simTaxRel != 0 && simTaxDes != 0)
 			//	simExp = bpm.matching(explanations, a.explanations, conceptA, conceptB);
-			sim = simTaxRel*simTaxDes*simExp;
+			sim = (simTaxRel + simTaxDes) / 2;//;*simExp;
 			return sim;
 		} catch (Exception e) {
 			// TODO Auto-generated catch block
@@ -96,12 +125,21 @@ public class OWLLink implements ComparableElement {
 	
 	public boolean equals(OWLLink b)
 	{
-		return relation == b.relation && destiny.getName().matches(b.destiny.getName());
+		if (destiny != null)
+			return relation.equals(b.relation) && destiny.getName().matches(b.destiny.getName());
+		else
+		{
+			boolean res = relation.equals(b.relation);
+			res = res && desLiteral.getLiteral().matches(b.desLiteral.getLiteral()); 
+			return res;
+		}
 	}
 	
 	public int hashCode(){
-		
-		return relation.hashCode() ^ destiny.hashCode();
+		if (destiny != null)
+			return relation.hashCode() ^ destiny.hashCode();
+		else
+			return relation.hashCode() ^ desLiteral.getLiteral().hashCode();
 	}
 
 }

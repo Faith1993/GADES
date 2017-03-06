@@ -9,6 +9,7 @@ import org.semanticweb.owlapi.model.OWLLogicalEntity;
 import org.semanticweb.owlapi.model.OWLNamedIndividual;
 
 import similarity.matching.BipartiteGraphMatching;
+import similarity.matching.OneToManyMatching;
 
 
 public class MyOWLIndividual extends MyOWLLogicalEntity{
@@ -40,7 +41,8 @@ public class MyOWLIndividual extends MyOWLLogicalEntity{
 	
 	private double similarityNeighbors(MyOWLIndividual c)
 	{
-		BipartiteGraphMatching bpm = new BipartiteGraphMatching();
+		//BipartiteGraphMatching bpm = new BipartiteGraphMatching();
+		OneToManyMatching bpm = new OneToManyMatching();
 		if (neighbors == null)
 			neighbors = o.getIndividualOWLLink(this);
 		if (c.neighbors == null)
@@ -60,14 +62,14 @@ public class MyOWLIndividual extends MyOWLLogicalEntity{
 		return c.similarityNeighbors(this);
 	}
 	
-	@Override
-	protected double similarityNeighbors(MyOWLLogicalEntity c) throws Exception{
+
+	public double similarityNeighbors(MyOWLLogicalEntity c) throws Exception{
 		if (c instanceof MyOWLIndividual)
 		{
 			MyOWLIndividual ind = (MyOWLIndividual) c;
 			return this.similarityNeighbors(ind);
 		}
-		if (c instanceof MyOWLIndividual)
+		if (c instanceof OWLConcept)
 		{
 			OWLConcept con = (OWLConcept) c;
 			return this.similarityNeighbors(con);
@@ -137,7 +139,7 @@ public class MyOWLIndividual extends MyOWLLogicalEntity{
 		if (this == c)
 			return 1.0;
 		
-		double sim = OnSim(c);
+		double sim = Jaccard(c);//OnSim(c);//
 
 		return sim;
 	}

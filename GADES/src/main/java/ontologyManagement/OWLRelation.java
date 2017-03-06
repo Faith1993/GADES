@@ -1,22 +1,51 @@
 package ontologyManagement;
 
+import org.semanticweb.owlapi.model.OWLDataProperty;
 import org.semanticweb.owlapi.model.OWLObjectProperty;
+import org.semanticweb.owlapi.model.OWLProperty;
 
 public class OWLRelation {
-	private OWLObjectProperty p;
+	private OWLProperty p;
 	private String uri;
 	private MyOWLOntology o;
 	
-	public OWLRelation(OWLObjectProperty property, MyOWLOntology ont)
+	public OWLRelation(OWLProperty property, MyOWLOntology ont)
 	{
 		o = ont;
 		p = property;
 		uri = property.toStringID();
 	}
 	
+	public OWLProperty getOWLProperty()
+	{
+		return p;
+	}
+	
 	public OWLObjectProperty getOWLObjectProperty()
 	{
-		return p;//o.getOWLObjectProperty(uri);
+		return p.asOWLObjectProperty();//o.getOWLObjectProperty(uri);
+	}
+	
+	public int hashCode()
+	{
+		return uri.hashCode();
+	}
+	
+	public boolean equals(Object o)
+	{
+		if (o instanceof OWLRelation)
+			return equals((OWLRelation) o);
+		return false;
+	}
+	
+	public boolean equals(OWLRelation r)
+	{
+		return uri.equals(r.uri);
+	}
+	
+	public OWLDataProperty getOWLDataProperty()
+	{
+		return p.asOWLDataProperty();
 	}
 	
 	public String toString()
@@ -26,6 +55,6 @@ public class OWLRelation {
 	
 	public double similarity(OWLRelation r)
 	{
-		return o.taxonomicPropertySimilarity(getOWLObjectProperty(), r.getOWLObjectProperty());
+		return o.taxonomicPropertySimilarity(getOWLProperty(), r.getOWLProperty());
 	}
 }

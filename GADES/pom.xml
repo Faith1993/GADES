@@ -1,7 +1,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>de.fzi</groupId>
-  <artifactId>iconsim</artifactId>
+  <artifactId>gades</artifactId>
   <version>0.0.1-SNAPSHOT</version>
   <dependencies>
   	<dependency>
@@ -18,6 +18,16 @@
   		<groupId>net.sourceforge.owlapi</groupId>
   		<artifactId>owlapi-distribution</artifactId>
   		<version>4.1.3</version>
+  	</dependency>
+  	<dependency>
+  		<groupId>com.hermit-reasoner</groupId>
+  		<artifactId>org.semanticweb.hermit</artifactId>
+  		<version>1.3.8.5-SNAPSHOT</version>
+  	</dependency>
+  	<dependency>
+  		<groupId>info.debatty</groupId>
+  		<artifactId>java-string-similarity</artifactId>
+  		<version>RELEASE</version>
   	</dependency>
   </dependencies>
 </project>

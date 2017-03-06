@@ -58,7 +58,10 @@ public class AnnSim {
 					{
 						ComparableElement s2 = v2[j];
 						AnnotationComparison comp = new AnnotationComparison(s1, s2);
-						costMatrix[i][j] = 1 - mapComparisons.get(comp); //The hungarian algorithm minimize. Therefore we convert the similarity in distance
+						Double sim = mapComparisons.get(comp);
+						if (sim == null)
+							sim = 0.0;
+						costMatrix[i][j] = 1 - sim; //The hungarian algorithm minimize. Therefore we convert the similarity in distance
 					}
 				}
 			}

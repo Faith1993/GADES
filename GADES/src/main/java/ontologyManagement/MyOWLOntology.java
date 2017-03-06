@@ -2,18 +2,22 @@ package ontologyManagement;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import java.util.Stack;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
+import org.semanticweb.HermiT.Configuration;
 import org.semanticweb.HermiT.Reasoner;
 import org.semanticweb.elk.owlapi.ElkReasoner;
 import org.semanticweb.elk.owlapi.ElkReasonerConfiguration;
@@ -27,10 +31,17 @@ import org.semanticweb.owlapi.model.AxiomType;
 import org.semanticweb.owlapi.model.ClassExpressionType;
 import org.semanticweb.owlapi.model.IRI;
 import org.semanticweb.owlapi.model.OWLAnnotation;
+import org.semanticweb.owlapi.model.OWLAnnotationAssertionAxiom;
+import org.semanticweb.owlapi.model.OWLAnnotationSubject;
 import org.semanticweb.owlapi.model.OWLAxiom;
 import org.semanticweb.owlapi.model.OWLClass;
+import org.semanticweb.owlapi.model.OWLClassAssertionAxiom;
 import org.semanticweb.owlapi.model.OWLClassExpression;
 import org.semanticweb.owlapi.model.OWLDataFactory;
+import org.semanticweb.owlapi.model.OWLDataProperty;
+import org.semanticweb.owlapi.model.OWLDataPropertyAssertionAxiom;
+import org.semanticweb.owlapi.model.OWLDataPropertyExpression;
+import org.semanticweb.owlapi.model.OWLEntity;
 import org.semanticweb.owlapi.model.OWLIndividual;
 import org.semanticweb.owlapi.model.OWLLiteral;
 import org.semanticweb.owlapi.model.OWLLogicalEntity;
@@ -38,11 +49,13 @@ import org.semanticweb.owlapi.model.OWLNamedIndividual;
 import org.semanticweb.owlapi.model.OWLObjectComplementOf;
 import org.semanticweb.owlapi.model.OWLObjectIntersectionOf;
 import org.semanticweb.owlapi.model.OWLObjectProperty;
+import org.semanticweb.owlapi.model.OWLObjectPropertyAssertionAxiom;
 import org.semanticweb.owlapi.model.OWLObjectPropertyExpression;
 import org.semanticweb.owlapi.model.OWLObjectSomeValuesFrom;
 import org.semanticweb.owlapi.model.OWLOntology;
 import org.semanticweb.owlapi.model.OWLOntologyCreationException;
 import org.semanticweb.owlapi.model.OWLOntologyManager;
+import org.semanticweb.owlapi.model.OWLProperty;
 import org.semanticweb.owlapi.model.OWLSubClassOfAxiom;
 import org.semanticweb.owlapi.model.OWLSubPropertyChainOfAxiom;
 import org.semanticweb.owlapi.model.PrefixManager;
@@ -56,6 +69,8 @@ import org.semanticweb.owlapi.reasoner.structural.StructuralReasonerFactory;
 import org.semanticweb.owlapi.search.EntitySearcher;
 import org.semanticweb.owlapi.util.DefaultPrefixManager;
 
+import com.google.common.collect.Multimap;
+
 import similarity.InformationContent;
 import similarity.matching.AnnotationComparison;
 import test.ComparisonResult;
@@ -66,6 +81,9 @@ public class MyOWLOntology {
 	private OWLOntology o;
 	private Map<String, OWLConcept> concepts;
 	private Map<OWLLogicalEntity, Set<OWLClass>> ancestors;
+	private Map<OWLProperty, Set<OWLProperty>> directSuperProperties;
+	private Map<OWLProperty, Set<OWLProperty>> allSuperProperties;
+	private Map<OWLLogicalEntity, Set<OWLIndividual>> ancestorsCat;
 	private Map<String, MyOWLIndividual> individuals;
 	private Map<OWLClass, Map<OWLClass, Integer>> conceptDistances;
 	private Map<String, OWLRelation> relations;
@@ -79,19 +97,22 @@ public class MyOWLOntology {
 	private Map<AnnotationComparison, Set<OWLConcept>> disAncestors;
 	private static int equivalentClassNumber = 0;
 	private HashMap<OWLClass, Integer> conceptProfs = new HashMap<OWLClass,Integer>();
-	private HashMap<OWLObjectProperty, Integer> relationProfs = new HashMap<OWLObjectProperty,Integer>();
+	private HashMap<OWLProperty, Integer> relationProfs = new HashMap<OWLProperty,Integer>();
+	private HashMap<OWLIndividual, Integer> categoryProfs = new HashMap<OWLIndividual, Integer>();
 	private boolean storing = true;
+	private Set<String> taxonomicProperties;
 	
 	public MyOWLOntology(String ontFile, String pr)
 	{
 		this(ontFile, pr, "hermit");
 	}
-	public MyOWLOntology(String ontFile, String pr, String reasonerName)
+	public MyOWLOntology(String ontFile, String pr, String reasonerName, Set<String> taxUris)
 	{
 		concepts = new HashMap<String,OWLConcept>();
 		individuals = new HashMap<String, MyOWLIndividual>();
 		relations = new HashMap<String,OWLRelation>();
 		ancestors = new HashMap<OWLLogicalEntity, Set<OWLClass>>();
+		ancestorsCat = new HashMap<OWLLogicalEntity, Set<OWLIndividual>>();
 		manager = OWLManager.createOWLOntologyManager();
 		factory = manager.getOWLDataFactory();
 		conceptDistances = new HashMap<OWLClass, Map<OWLClass, Integer>>();
@@ -99,6 +120,8 @@ public class MyOWLOntology {
 		lcas = new HashMap<AnnotationComparison, OWLConcept>();
 		disAncestors = new HashMap<AnnotationComparison, Set<OWLConcept>>();
     	expID = 0;
+    	allSuperProperties = new HashMap<OWLProperty, Set<OWLProperty>>();
+    	directSuperProperties = new HashMap<OWLProperty, Set<OWLProperty>>();
 		
 		try {
 			o = manager.loadOntologyFromOntologyDocument(new File(ontFile));
@@ -151,6 +174,13 @@ public class MyOWLOntology {
 			e.printStackTrace();
 		}
 		propertyChains = this.getPropertyChains();
+		
+		taxonomicProperties = new HashSet<String>();
+		taxonomicProperties.addAll(taxUris);
+	}
+	public MyOWLOntology(String ontFile, String pr, String reasonerName)
+	{
+		this(ontFile, pr, "hermit", new HashSet<String>(Arrays.asList("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")));		
 	}
 	
 	public OWLOntology getOWLOntology()
@@ -161,6 +191,21 @@ public class MyOWLOntology {
 	public String getOntologyPrefix()
 	{
 		return prefix;
+	}
+	
+	public void addIndividuals(Set<String> uris)
+	{
+		for (String s: uris)
+		{
+			if (individuals.get(s) == null)
+			{
+				OWLNamedIndividual individual = factory.getOWLNamedIndividual(IRI.create(s));
+				OWLClass classExpression = factory.getOWLThing();
+				OWLClassAssertionAxiom ax = factory.getOWLClassAssertionAxiom(classExpression, individual);
+				manager.addAxiom(o, ax);
+				individuals.put(s, new MyOWLIndividual(individual, this));
+			}
+		}
 	}
 	
 	public Set<OWLRelation> getOWLRelations()
@@ -515,60 +560,38 @@ public class MyOWLOntology {
 	{
  		Set<OWLLink> ownLinks = new HashSet<OWLLink>();
  		Collection<OWLIndividual> sameInd = EntitySearcher.getSameIndividuals(ind.getOWLIndividual().getOWLNamedIndividual(), o);
-		for (Iterator<OWLRelation> k = relations.values().iterator(); k.hasNext();)
-		{
-			OWLRelation r = k.next();
-			OWLObjectProperty p = r.getOWLObjectProperty();
-			System.out.println(ind + "\t" + r);
-			Set<OWLNamedIndividual> set = new HashSet<OWLNamedIndividual>();
-			
-			if (propertyChains.containsKey(r) || propertyChains.containsValue(r) || EntitySearcher.isTransitive(p, o) || !sameInd.isEmpty())
-				set = reasoner.getObjectPropertyValues(ind.getOWLNamedIndividual(), r.getOWLObjectProperty()).getFlattened();
-			else
-			{
-				Collection<OWLIndividual> setAux = EntitySearcher.getObjectPropertyValues(ind.getOWLNamedIndividual(), r.getOWLObjectProperty(), o);//ind.getOWLNamedIndividual().getObjectPropertyValues(r.getOWLObjectProperty(), o);
-				for (OWLIndividual i: setAux)
-				{
-					if (i.isNamed())
-						set.add(i.asOWLNamedIndividual());
-				}
-			}
-			System.out.println("Listo");
-			//
-			for (Iterator<OWLNamedIndividual> i = set.iterator(); i.hasNext();)
-			{
-				OWLIndividual aux = i.next();
-				if (!aux.isAnonymous())
-				{
-					OWLNamedIndividual neigh = (OWLNamedIndividual) aux;
-					if (neigh.toStringID().contains(prefix))
-					{
-						MyOWLIndividual aux1 = individuals.get(neigh.toStringID());
-						if (aux1 != null)
-						{
-							Set<OWLExplanation> exps = Collections.emptySet();//checkOWLLink(ind, r, aux);
-							OWLLink link = new OWLLink(r, aux1, exps);
-							ownLinks.add(link);
-						}
-						else
-						{
-							Set<OWLExplanation> exps = Collections.emptySet();
-							OWLConcept con = concepts.get(neigh.toStringID());
-							if (con != null)
-							{
-								OWLLink link = new OWLLink(r, con, exps);
-								ownLinks.add(link);
-							}
-							//System.out.println(neigh.toStringID() + " is not an individual");
-						}
-					}
-					else
-					{
-						//System.out.println(neigh.toStringID() + " does not belong to this ontology");
-					}
-				}
-			}
-		}
+ 		sameInd.add(ind.getOWLNamedIndividual());
+ 		for (OWLIndividual oInd : sameInd)
+ 		{
+	 		Set<OWLObjectPropertyAssertionAxiom> axioms = o.getObjectPropertyAssertionAxioms(oInd);
+	 		for (OWLObjectPropertyAssertionAxiom oax: axioms)
+	 		{
+	 			if (!taxonomicProperties.contains(oax.getProperty().asOWLObjectProperty().toStringID()) && oax.getObject().toStringID().contains("http://dbpedia.org"))
+	 			{
+	 				OWLRelation rel = new OWLRelation(oax.getProperty().asOWLObjectProperty(), this);
+	 				MyOWLIndividual mInd = this.getMyOWLIndividual(oax.getObject().toStringID());
+	 				ownLinks.add(new OWLLink(rel, mInd));
+	 			}
+	 		}
+
+	 		Set<OWLDataPropertyAssertionAxiom> dataAxioms = o.getDataPropertyAssertionAxioms(oInd);
+	 		for (OWLDataPropertyAssertionAxiom oax: dataAxioms)
+	 		{
+	 			if (!taxonomicProperties.contains(oax.getProperty().asOWLDataProperty().toStringID()))
+	 			{
+	 				OWLRelation rel = new OWLRelation(oax.getProperty().asOWLDataProperty(), this);
+	 				ownLinks.add(new OWLLink(rel, oax.getObject()));
+	 			}
+	 		}
+	 		
+	 		Set<OWLAnnotationAssertionAxiom> annAxioms = new HashSet<OWLAnnotationAssertionAxiom>(EntitySearcher.getAnnotationAssertionAxioms(oInd.asOWLNamedIndividual(), o));
+	 		for (OWLAnnotationAssertionAxiom oax: annAxioms)
+	 		{
+	 				OWLRelation rel = new OWLRelation(oax.getProperty().asOWLAnnotationProperty(), this);
+	 				if (oax.getValue().asLiteral().isPresent())
+	 					ownLinks.add(new OWLLink(rel, oax.getValue().asLiteral().get()));
+	 		}
+ 		}
 		return ownLinks;
 	}
 	
@@ -733,17 +756,18 @@ public class MyOWLOntology {
 	private void startHermiTReasoner(){
 		OWLReasonerFactory reasonerFactory = (OWLReasonerFactory) new Reasoner.ReasonerFactory(); //new JcelReasonerFactory(); //ElkReasonerFactory(); new JFactFactory(); //new PelletReasonerFactory(); 
 		ConsoleProgressMonitor progressMonitor = new ConsoleProgressMonitor();
-		OWLReasonerConfiguration configuration = new SimpleConfiguration(progressMonitor);
-		//configuration.ignoreUnsupportedDatatypes = true;
-		//configuration.throwInconsistentOntologyException = false;
+		//OWLReasonerConfiguration configuration = new SimpleConfiguration(progressMonitor);
+		Configuration configuration = new Configuration();
+		configuration.ignoreUnsupportedDatatypes=true; 
+		configuration.throwInconsistentOntologyException = false;
 		reasoner =  reasonerFactory.createReasoner(o, (OWLReasonerConfiguration) configuration);
-		startReasoner(reasonerFactory, (OWLReasonerConfiguration) configuration);
+		//startReasoner(reasonerFactory, (OWLReasonerConfiguration) configuration);
 	}
 	
 	private void startStructuralReasoner(){
 		OWLReasonerFactory reasonerFactory = new StructuralReasonerFactory();
-		ConsoleProgressMonitor progressMonitor = new ConsoleProgressMonitor();
-		OWLReasonerConfiguration configuration = new SimpleConfiguration(progressMonitor);
+		//ConsoleProgressMonitor progressMonitor = new ConsoleProgressMonitor();
+		OWLReasonerConfiguration configuration = new SimpleConfiguration();
 		reasoner = reasonerFactory.createReasoner(o, configuration);
 		startReasoner(reasonerFactory, configuration);
 	}
@@ -755,6 +779,10 @@ public class MyOWLOntology {
 
 	public Set<OWLConcept> getConcepts() {
 		return new HashSet<OWLConcept>(concepts.values());
+	}
+	
+	public Set<MyOWLIndividual> getMyOWLIndividuals() {
+		return new HashSet<MyOWLIndividual>(individuals.values());
 	}
 	
 	public void removeConcept(OWLConcept c)
@@ -844,6 +872,30 @@ public class MyOWLOntology {
 		return anc;
 	}
 	
+	private Set<OWLIndividual> getSuperCategories(OWLIndividual sub)
+	{
+		Set<OWLIndividual> anc = ancestorsCat.get(sub);
+		if (anc == null)
+		{
+			anc = new HashSet<OWLIndividual>();
+			Queue<OWLIndividual> q = new LinkedList<OWLIndividual>();
+			q.add(sub);
+			Set<OWLIndividual> processed = new HashSet<OWLIndividual>();
+			while (!q.isEmpty())
+			{
+				OWLIndividual ind = q.poll();
+				processed.add(ind);
+				Collection<OWLIndividual> newInds = EntitySearcher.getObjectPropertyValues(ind, factory.getOWLObjectProperty(IRI.create("http://purl.org/dc/terms/subject")), o);
+				newInds.addAll(EntitySearcher.getObjectPropertyValues(ind, factory.getOWLObjectProperty(IRI.create("http://www.w3.org/2004/02/skos/core#broader")), o));
+				newInds.removeAll(processed);
+				q.addAll(newInds);
+				anc.addAll(newInds);
+			}
+			ancestorsCat.put((OWLLogicalEntity) sub, anc);
+		}
+		return anc;
+	}
+	
 	public Set<OWLConcept> getAncestors(OWLConcept c)
 	{
 		Set<OWLClass> classes = getSuperClasses(c.getOWLClass());
@@ -882,7 +934,10 @@ public class MyOWLOntology {
 		Set<T> common = new HashSet<T>(setX);
 		common.retainAll(setY);
 		
-		T lcs = common.iterator().next();
+		T lcs;
+		if (common.isEmpty())
+			return null;
+		lcs = common.iterator().next();
 
 		int maxProf = prof(lcs);
 		for (Iterator<T> i = common.iterator(); i.hasNext(); )
@@ -898,37 +953,58 @@ public class MyOWLOntology {
 		return lcs;
 	}
 	
-	public Set<OWLObjectPropertyExpression> getSuperObjectProperties(OWLObjectProperty x, boolean direct)
+	
+	public Set<OWLProperty> getSuperProperties(OWLProperty x, boolean direct)
 	{
-		Set<OWLObjectPropertyExpression> superProp = new HashSet<OWLObjectPropertyExpression>();
+		Set<OWLProperty> superProp = new HashSet<OWLProperty>();
 		superProp.add(factory.getOWLTopObjectProperty());
 		if (direct)
 		{
-			superProp.addAll(EntitySearcher.getSuperProperties(x, o));//x.getSuperProperties(o));
+			Set<OWLProperty> supProp = directSuperProperties.get(x);
+			if (supProp != null)
+				superProp = supProp;
+			else
+			{
+				superProp.addAll(EntitySearcher.getSuperProperties(x, o));//x.getSuperProperties(o));
+				directSuperProperties.put(x, superProp);
+			}
 			return superProp;
 		}
+
+		Set<OWLProperty> supProp = allSuperProperties.get(x);
+		if (supProp != null)
+			return supProp;
 		
-		Collection<OWLObjectPropertyExpression> step = EntitySearcher.getSuperProperties(x, o);//x.getSuperProperties(o);
-		List<OWLObjectPropertyExpression> list = new ArrayList<OWLObjectPropertyExpression>(step);
+		Collection<OWLProperty> step = EntitySearcher.getSuperProperties(x, o);//x.getSuperProperties(o);
+		List<OWLProperty> list = new ArrayList<OWLProperty>(step);
 		while (list.size() > 0)
 		{
 			step = EntitySearcher.getSuperProperties(list.get(0), o);//list.get(0).getSuperProperties(o);
-			superProp.add(list.get(0));
+			if (!superProp.containsAll(step))
+			{
+				superProp.add(list.get(0));
+				list.addAll(step);
+			}
 			list.remove(0);
-			list.addAll(step);
+			
 		}
+		allSuperProperties.put(x, superProp);
 		return superProp;
 	}
 	
 	
-	public double taxonomicPropertySimilarity (OWLObjectProperty x, OWLObjectProperty y)
+	public double taxonomicPropertySimilarity (OWLProperty x, OWLProperty y)
 	{	
-		Set<OWLObjectPropertyExpression> setX = this.getSuperObjectProperties(x, false); 
+		if (!x.getClass().equals(y.getClass()))
+			return 0;
+		if (x.equals(y))
+			return 1;
+		Set<OWLProperty> setX = this.getSuperProperties(x, false); 
 		setX.add(x);
-		Set<OWLObjectPropertyExpression> setY = this.getSuperObjectProperties(y, false);
+		Set<OWLProperty> setY = this.getSuperProperties(y, false);
 		setY.add(y);
 		
-		OWLObjectProperty lcs = (OWLObjectProperty) profLCS(setX, setY, x, y);
+		OWLProperty lcs = (OWLProperty) profLCS(setX, setY, x, y);
 		double profLCS = prof(lcs);
 		
 		double dxa = dist(x, lcs);
@@ -938,6 +1014,46 @@ public class MyOWLOntology {
 		double dtax = (dxa + dya)/(dxroot + dyroot);
 		
 		return 1-dtax;
+	}
+	
+	public Set<String> getAllTriples(MyOWLIndividual e)
+	{
+		Collection<OWLAnnotationAssertionAxiom> anns = EntitySearcher.getAnnotationAssertionAxioms(e.getOWLLogicalEntity(), o);
+		Multimap<OWLObjectPropertyExpression, OWLIndividual> objProp = EntitySearcher.getObjectPropertyValues(e.getOWLNamedIndividual(), o);
+		Multimap<OWLDataPropertyExpression, OWLLiteral> dataProp = EntitySearcher.getDataPropertyValues(e.getOWLNamedIndividual(), o);
+		
+		Set<String> triples = new HashSet<String>();
+		
+		for (OWLAnnotationAssertionAxiom a: anns)
+		{
+			String s = a.toString();
+			//if (!a.getProperty().toStringID().contains("http://dbpedia.org/property/"))
+			//{
+				if (a.getValue().asLiteral().isPresent())
+					triples.add(a.getProperty().toStringID() + " " + a.getValue().asLiteral().get().getLiteral().toString());
+			//}
+		}
+		for (OWLObjectPropertyExpression a: objProp.asMap().keySet())
+		{
+			Collection<OWLIndividual> col = objProp.asMap().get(a);
+			for (OWLIndividual i: col)
+			{
+				String s = a.toString() + " " + i.toString();
+				//if (!s.contains("http://dbpedia.org/property/"))
+					triples.add(s);
+			}
+		}
+		for (OWLDataPropertyExpression a: dataProp.asMap().keySet())
+		{
+			Collection<OWLLiteral> col = dataProp.asMap().get(a);
+			for (OWLLiteral i: col)
+			{
+				String s = a.toString() + " " + i.getLiteral().toString();
+				//if (!s.contains("http://dbpedia.org/property/"))
+					triples.add(s);
+			}
+		}
+		return triples;
 	}
 	
 	public MyOWLLogicalEntity getLCS(MyOWLLogicalEntity a, MyOWLLogicalEntity b)
@@ -1125,10 +1241,42 @@ public class MyOWLOntology {
 		return dps;
 	}
 	
+	public Set<OWLIndividual> getCategories(OWLNamedIndividual ind, boolean direct)
+	{
+		OWLObjectProperty subject = factory.getOWLObjectProperty(IRI.create("http://purl.org/dc/terms/subject"));
+		OWLObjectProperty broader = factory.getOWLObjectProperty(IRI.create("http://www.w3.org/2004/02/skos/core#broader"));
+		
+		Collection<OWLIndividual> catInds = EntitySearcher.getObjectPropertyValues(ind, subject, o);
+		if (catInds.isEmpty())
+		{
+			catInds = EntitySearcher.getObjectPropertyValues(ind, broader, o);
+		}
+		
+		Set<OWLIndividual> categories = new HashSet<OWLIndividual> (catInds);
+		if (ind.toStringID().toLowerCase().contains("category"))
+			categories.add(ind);
+		Set<OWLIndividual> newCategories = new HashSet<OWLIndividual> ();
+		return categories;
+		/*
+		if (direct)
+		{
+			return categories;
+		}
+		else
+		{
+			for (OWLIndividual cat: categories)
+			{
+				newCategories.addAll(getSuperCategories(cat));
+			}
+			categories.addAll(newCategories);
+		}
+		return categories;*/
+	}
 	
 	public Set<OWLClass> getTypes(OWLNamedIndividual ind, boolean direct)
 	{
 		Set<OWLClass> classes = new HashSet<OWLClass>();
+		classes.add(factory.getOWLThing());
 		Collection<OWLClassExpression> classExprs = EntitySearcher.getTypes(ind, o);//ind.getTypes(o);
 		
 		if (direct)
@@ -1155,15 +1303,35 @@ public class MyOWLOntology {
 	
 	public double taxonomicIndividualSimilarity (OWLLogicalEntity x, OWLLogicalEntity y)
 	{
-		Set<OWLClass> setX;
-		Set<OWLClass> setY;
-		OWLClass lcs = null;
+		if (x.equals(y))
+			return 1;
+		Set<OWLLogicalEntity> setX = new HashSet<OWLLogicalEntity>();
+		Set<OWLLogicalEntity> setY = new HashSet<OWLLogicalEntity>();
+		OWLLogicalEntity lcs = null;
 		if (x.isOWLNamedIndividual() && y.isOWLNamedIndividual())
 		{
-			setX = /*reasoner.*/getTypes(x.asOWLNamedIndividual(), false);//.getFlattened();
-			setY = /*reasoner.*/getTypes(y.asOWLNamedIndividual(), false);//.getFlattened();
+			//Set<OWLClass> auxX = getTypes(x.asOWLNamedIndividual(), false);
+			//Set<OWLClass> auxY = getTypes(y.asOWLNamedIndividual(), false);
+			Set<OWLIndividual> auxX = getCategories(x.asOWLNamedIndividual(), false);
+			Set<OWLIndividual> auxY = getCategories(y.asOWLNamedIndividual(), false);
+			for (OWLIndividual a: auxX)
+			{
+				if (a.isNamed())
+					setX.add(a.asOWLNamedIndividual());
+			}
+			for (OWLIndividual b: auxY)
+			{
+				if (b.isNamed())
+					setY.add(b.asOWLNamedIndividual());
+			}
+			//setX = /*reasoner.*/getTypes(x.asOWLNamedIndividual(), false);//.getFlattened();
+			//setY = /*reasoner.*/getTypes(y.asOWLNamedIndividual(), false);//.getFlattened();
+			
 			if (setX.isEmpty() || setY.isEmpty())
-				System.out.println("ERROR: " + x + " or " + y + " have no types.");
+			{
+				//System.out.println("ERROR: " + x + " or " + y + " have no types.");
+				return -1;
+			}
 			lcs = profLCS(setX, setY, setX.iterator().next(), null);
 		}
 		
@@ -1171,10 +1339,22 @@ public class MyOWLOntology {
 		{
 			OWLClass xC = x.asOWLClass();
 			OWLClass yC = y.asOWLClass();
-			setX = getSuperClasses(xC);//reasoner.getSuperClasses(xC, false).getFlattened();
+			Set<OWLClass> auxX = getSuperClasses(xC);
+			auxX.add(xC);
+			Set<OWLClass> auxY = getSuperClasses(yC);
+			auxY.add(yC);
+			for (OWLClass a: auxX)
+			{
+				setX.add(a);
+			}
+			for (OWLClass b: auxY)
+			{
+				setY.add(b);
+			}
+			/*setX = getSuperClasses(xC);//reasoner.getSuperClasses(xC, false).getFlattened();
 			setX.add(xC);
 			setY = getSuperClasses(yC);//reasoner.getSuperClasses(yC, false).getFlattened();
-			setY.add(yC);
+			setY.add(yC);*/
 			lcs = profLCS(setX, setY, xC, yC);
 		}
 		
@@ -1195,9 +1375,9 @@ public class MyOWLOntology {
 		
 		double profLCS = prof(lcs);
 		
-		double dxa = dist(x, lcs);
+		double dxa = dist(x, lcs) + 4;
 		double dxroot = profLCS + dxa;//dist(x, root);
-		double dya = dist(y, lcs);
+		double dya = dist(y, lcs) + 4;
 		double dyroot = profLCS + dya;//dist(y, root);
 		double num = dxa + dya;
 		double den = dxroot + dyroot;
@@ -1243,6 +1423,36 @@ public class MyOWLOntology {
 		}
 	}
 	
+	//Only for DBpedia category hierarchy 
+	public int getDepth(OWLIndividual c1)
+	{
+		int depth = 0;
+		Collection<OWLIndividual> indis = EntitySearcher.getObjectPropertyValues((OWLIndividual) c1, factory.getOWLObjectProperty(IRI.create("http://purl.org/dc/terms/subject")), o);
+		
+		if (indis.isEmpty()) // Si est¡a vac¡io la entrada es una category y hay que devolver la prof en la jerarquia
+		{
+			Collection<OWLAnnotation> depths = EntitySearcher.getAnnotations((OWLEntity) c1, o, factory.getOWLAnnotationProperty(IRI.create("http://dbpedia_hierarchy.org/has_depth")));
+			for (OWLAnnotation d: depths)
+			{
+				depth = d.getValue().asLiteral().get().parseInteger();
+			}
+			return depth;
+		}
+		depth++;
+		int maxDepth = 0;
+		for (OWLIndividual ind: indis)
+		{
+			Collection<OWLAnnotation> depths = EntitySearcher.getAnnotations((OWLEntity) ind, o, factory.getOWLAnnotationProperty(IRI.create("http://dbpedia_hierarchy.org/has_depth")));
+			for (OWLAnnotation d: depths)
+			{
+				int currentDepth = d.getValue().asLiteral().get().parseInteger();
+				if (currentDepth > maxDepth)
+					maxDepth = currentDepth;
+			}
+		}
+		depth += maxDepth;
+		return depth;
+	}
 	
 	public <T> int dist(T c1, T c2)
 	{
@@ -1271,50 +1481,89 @@ public class MyOWLOntology {
 			}
 			setDistance((OWLClass)c1, (OWLClass)c2, depth);
 		}
-		else if (c1 instanceof OWLObjectProperty)
+		else if (c1 instanceof OWLProperty)
 		{
-			Set<OWLObjectPropertyExpression> c = new HashSet<OWLObjectPropertyExpression>();
-			c.add((OWLObjectPropertyExpression) c1);
+			Set<OWLProperty> c = new HashSet<OWLProperty>();
+			c.add((OWLProperty) c1);
 			while (!c.contains(c2) && !c.isEmpty())
 			{
-				Set<OWLObjectPropertyExpression> superObjectProperties = new HashSet<OWLObjectPropertyExpression>();
-				for (Iterator<OWLObjectPropertyExpression> i = c.iterator(); i.hasNext();)
+				Set<OWLProperty> superObjectProperties = new HashSet<OWLProperty>();
+				for (Iterator<OWLProperty> i = c.iterator(); i.hasNext();)
 				{
-					OWLObjectPropertyExpression aux = i.next();
+					OWLProperty aux = i.next();
 					if (!aux.isAnonymous())
-						superObjectProperties.addAll(EntitySearcher.getSuperProperties(aux, o));//aux.getSuperProperties(o));
+						superObjectProperties.addAll(this.getSuperProperties(aux, false));//EntitySearcher.getSuperProperties(aux, o));//aux.getSuperProperties(o));
 				}
-				c = superObjectProperties;
+				if (c.equals(superObjectProperties))
+					c.clear();
+				else
+					c = superObjectProperties;
 				depth++;				
 			}
 		} else if (c1 instanceof OWLNamedIndividual)
 		{
-			 Set<OWLClassExpression> c = new HashSet<OWLClassExpression>();
-			 Set<OWLClass> auxSet = this.getTypes((OWLNamedIndividual) c1, true);//reasoner.getTypes((OWLNamedIndividual) c1, true).getFlattened();
-			 for (OWLClass cl: auxSet)
+			 Set<OWLLogicalEntity> c = new HashSet<OWLLogicalEntity>();
+			 //Set<OWLClass> auxClassSet = this.getTypes((OWLNamedIndividual) c1, true);//reasoner.getTypes((OWLNamedIndividual) c1, true).getFlattened();
+			 Set<OWLLogicalEntity> auxSet = new HashSet<OWLLogicalEntity>();
+			 /*for (OWLClass auxClas: auxClassSet)
+			 {
+				 auxSet.add(auxClas);
+			 }*/
+			 int depth1 = getDepth((OWLIndividual) c1);
+			 int depth2 = getDepth((OWLIndividual) c2);
+			 return depth1 - depth2;
+			 /*Set<OWLIndividual> auxIndSet = new HashSet<OWLIndividual>(indis);
+			 for (OWLIndividual ind: auxIndSet)
+			 {
+				 auxSet.add(ind.asOWLNamedIndividual());
+			 }
+			 for (OWLLogicalEntity cl: auxSet)
 			 {
 				 c.add(cl);
 			 }
+			 Set<OWLLogicalEntity> processedEnt = new HashSet<OWLLogicalEntity>();
 			 while (!c.contains(c2) && !c.isEmpty())
 			 {
-				Set<OWLClassExpression> superClasses = new HashSet<OWLClassExpression>();
-				for (Iterator<OWLClassExpression> i = c.iterator(); i.hasNext();)
+				//Set<OWLClassExpression> superClasses = new HashSet<OWLClassExpression>();
+				Set<OWLNamedIndividual> superCategories = new HashSet<OWLNamedIndividual>();
+				for (Iterator<OWLLogicalEntity> i = c.iterator(); i.hasNext();)
 				{
-					OWLClassExpression aux = i.next();
-					if (!aux.isAnonymous())
+					OWLLogicalEntity aux = i.next();
+					if (aux instanceof OWLClass)
 					{
-						OWLClass cl = aux.asOWLClass();
-						superClasses.addAll(EntitySearcher.getSuperClasses(cl, o));//cl.getSuperClasses(o));
+						if (!aux.asOWLClass().isAnonymous())
+						{
+							OWLClass cl = aux.asOWLClass();
+							superClasses.addAll(EntitySearcher.getSuperClasses(cl, o));//cl.getSuperClasses(o));
+						}
 					}
+					else if (aux instanceof OWLIndividual)
+					{
+						if (!aux.asOWLNamedIndividual().isAnonymous())
+						{
+							OWLIndividual cl = aux.asOWLNamedIndividual();
+							Collection<OWLIndividual> collInd = EntitySearcher.getObjectPropertyValues(cl, factory.getOWLObjectProperty(IRI.create("http://www.w3.org/2004/02/skos/core#broader")), o);
+							for (OWLIndividual ind: collInd)
+							{
+								superCategories.add(ind.asOWLNamedIndividual());
+							}
+						}
+					}
+					processedEnt.add(aux);
 				}
-				c = superClasses;
+				//c = superClasses;
+				c.clear();
+				superCategories.removeAll(processedEnt);
+				for (OWLNamedIndividual cat: superCategories)
+				{
+					c.add(cat);
+				}
 				depth++;
-			 }
+			 }*/
 		}
 		else	try {
 				throw new Exception("dist() does not accept objects of type " + c1.getClass());
 			} catch (Exception e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 		return depth;
@@ -1332,13 +1581,28 @@ public class MyOWLOntology {
 			if (storing)
 				conceptProfs.put((OWLClass) _class, depth);
 		}
-		else if (_class instanceof OWLObjectProperty)
+		else if (_class instanceof OWLProperty)
 		{
 			if (relationProfs.get(_class) != null)
 				return relationProfs.get(_class);
-			depth = dist (_class, factory.getOWLTopObjectProperty());
-			relationProfs.put((OWLObjectProperty) _class, depth);
-		} else
+			if (_class instanceof OWLDataProperty)
+				depth = dist(_class, factory.getOWLTopDataProperty());
+			if (_class instanceof OWLObjectProperty)
+				depth = dist (_class, factory.getOWLTopObjectProperty());
+			relationProfs.put((OWLProperty) _class, depth);
+		} else if (_class instanceof OWLIndividual)
+		{
+			if (categoryProfs.get(_class) != null)
+				return categoryProfs.get(_class);
+			Collection<OWLAnnotation> depths = EntitySearcher.getAnnotations((OWLEntity) _class,  o, factory.getOWLAnnotationProperty(IRI.create("http://dbpedia_hierarchy.org/has_depth")));
+			
+			for (OWLAnnotation ann: depths)
+			{
+				depth = Integer.parseInt(ann.getValue().asLiteral().get().getLiteral());
+			}
+			//depth = dist (_class, factory.getOWLClass(IRI.create("http://www.w3.org/2004/02/skos/core#Concept")));
+			categoryProfs.put((OWLIndividual) _class, depth);
+		}else
 			try {
 				throw new Exception("prof() does not accept objects of type " + _class.getClass());
 			} catch (Exception e) {
@@ -1361,7 +1625,7 @@ public class MyOWLOntology {
 	
 	
 	
-	public static void main(String[] args)
+	public static void main(String[] args) throws Exception
 	{
 		/*String ontFile1 = "/home/traverso/Schreibtisch/test.rdf";
 		MyOWLOntology oDBP = new MyOWLOntology(ontFile1, "http://dbpedia.org/ontology/");
@@ -1380,24 +1644,25 @@ public class MyOWLOntology {
 		ontPrefix.put("src/main/resources/dataset3/", "http://purl.org/obo/owl/GO#");
 		ontPrefix.put("src/main/resources/dataset32014/", "http://purl.obolibrary.org/obo/");
 		String prefix = "src/main/resources/dataset3/";
-		String ontFile = prefix + "goProtein/goEL.owl";
-		MyOWLOntology o = new MyOWLOntology(ontFile, ontPrefix.get(prefix), "HermiT");//"http://purl.obolibrary.org/obo/");
+		//String ontFile = prefix + "goProtein/goEL.owl";
+		String ontFile = "resources/dbpedia_diego.nt";
+		MyOWLOntology o = new MyOWLOntology(ontFile, "http://dbpedia.org/ontology/", "HermiT");//"http://purl.obolibrary.org/obo/");
 		
-		String comparisonFile = prefix + "proteinpairs.txt";
+		/*String comparisonFile = prefix + "proteinpairs.txt";
 		List<ComparisonResult> comparisons = DatasetTest.readComparisonFile(comparisonFile);
 		String[] files = {prefix + "bpNew"};
-		InformationContent ic = new InformationContent(comparisons, files, o);		
+		InformationContent ic = new InformationContent(comparisons, files, o);		*/
 		
 		
-		OWLConcept a = o.getOWLConcept(ontPrefix.get(prefix) + "GO_0006355");
-		OWLConcept b = o.getOWLConcept(ontPrefix.get(prefix) + "GO_0006342");
+		MyOWLIndividual a = o.getMyOWLIndividual("http://dbpedia.org/resource/Airavt/dump0");
+		MyOWLIndividual b = o.getMyOWLIndividual("http://dbpedia.org/resource/Airavt/dump1");
 		Set<MyOWLLogicalEntity> anns = new HashSet<MyOWLLogicalEntity>();
 		anns.add(a);
 		anns.add(b);
 		o.setOWLLinks(anns);
 		Set<OWLLink> neighA = a.getNeighbors();
 		Set<OWLLink> neighB = b.getNeighbors();
-		System.out.println(b.similarityIC(a));//.taxonomicSimilarity(a));
+		System.out.println(b.similarity(a));//.taxonomicSimilarity(a));
 		
 		OWLRelation r1 = o.getOWLRelation("http://purl.obolibrary.org/obo/RO_0002213");//"("http://purl.org/obo/owl/obo#positively_regulates");
 		System.out.println(o.getPropertyChains(r1));

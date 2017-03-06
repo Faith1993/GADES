@@ -1,6 +1,7 @@
 package ontologyManagement;
 
 
+import java.util.HashSet;
 import java.util.Set;
 
 import org.semanticweb.owlapi.model.OWLLogicalEntity;
@@ -60,7 +61,7 @@ public abstract class MyOWLLogicalEntity implements ComparableElement{
 	
 	public abstract double taxonomicSimilarity(MyOWLLogicalEntity c) throws Exception;
 	public abstract double similarity(MyOWLLogicalEntity a) throws Exception;
-	protected abstract double similarityNeighbors(MyOWLLogicalEntity c) throws Exception;
+	public abstract double similarityNeighbors(MyOWLLogicalEntity c) throws Exception;
 	
 	public double ICOnSim(MyOWLLogicalEntity c) throws Exception
 	{
@@ -110,17 +111,49 @@ public abstract class MyOWLLogicalEntity implements ComparableElement{
 		return informC;
 	}
 	
+	public double Jaccard(MyOWLLogicalEntity c)
+	{
+		double sim = 0;
+		if (c instanceof MyOWLIndividual)
+		{
+			MyOWLIndividual ind1 = (MyOWLIndividual) this;
+			MyOWLIndividual ind2 = (MyOWLIndividual) c;
+			Set<String> triples1 = o.getAllTriples(ind1);
+			Set<String> triples2 = o.getAllTriples(ind2);
+			Set<String> inter = new HashSet<String>(triples1);
+			inter.retainAll(triples2);
+			Set<String> union = new HashSet<String>(triples1);
+			union.addAll(triples2);
+			if (union.size() < 1)
+				System.out.println(ind1 + "\t" + ind2);
+			sim = inter.size();
+			sim = sim / union.size();
+		}
+		if (Double.isNaN(sim))
+			sim = 0.0;
+		return sim;
+	}
+	
 	public double OnSim(MyOWLLogicalEntity c) throws Exception
 	{
-		double taxSim = taxonomicSimilarity(c);
-		Double sim = taxSim;
-		double neighSim = 1;
-		if (taxSim > 0 )
+		double taxSim = taxonomicSimilarity(c);//-1;//
+		Double sim = 0.0;
+		double neighSim = similarityNeighbors(c);
+		int count = 0;
+		if (taxSim > 0)
 		{
-				neighSim = similarityNeighbors(c);
+			sim += taxSim;
+			count++;
 		}
-		sim = taxSim * neighSim;
-		return sim;
+		if (neighSim > 0)
+		{
+			sim += neighSim;
+			count++;
+		}
+		if (count == 0)
+			return Jaccard(c);
+		else
+			return sim / count;
 	}
 	
 	public double Achim(MyOWLLogicalEntity c) throws Exception
@@ -141,4 +174,9 @@ public abstract class MyOWLLogicalEntity implements ComparableElement{
 	}
 
 	public abstract double getIC();
+	
+	public int hashCode()
+	{
+		return uri.hashCode();
+	}
 }
